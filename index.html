@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0D1210">
+<title>Télémètre — visée optique</title>
+<style>
+  :root{
+    --ink:#0D1210;
+    --graticule:#7FE3B0;
+    --span:#FFC94A;
+    --paper:#E8EDE9;
+    --dim:rgba(232,237,233,.52);
+    --line:rgba(127,227,176,.22);
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --ui:system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0;background:var(--ink);color:var(--paper);font-family:var(--ui);overscroll-behavior:none}
+  body{display:flex;flex-direction:column}
+
+  .eyebrow{font:600 10px/1 var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--dim)}
+
+  /* ---------- écran d'accueil ---------- */
+  #intro{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;justify-content:center;
+    gap:22px;padding:32px 26px;background:
+    radial-gradient(120% 80% at 50% 0%,#16211B 0%,var(--ink) 62%)}
+  #intro h1{margin:0;font:500 30px/1.05 var(--ui);letter-spacing:-.02em}
+  #intro h1 em{font-style:normal;color:var(--graticule)}
+  #intro ol{margin:0;padding-left:1.1em;font-size:14px;line-height:1.65;color:var(--dim)}
+  #intro ol b{color:var(--paper);font-weight:500}
+  .btn{appearance:none;border:1px solid var(--graticule);background:transparent;color:var(--graticule);
+    font:600 12px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;padding:16px 20px;border-radius:2px;cursor:pointer}
+  .btn:active{background:rgba(127,227,176,.12)}
+  .btn:focus-visible{outline:2px solid var(--span);outline-offset:3px}
+  #err{color:#FF7A66;font:400 13px/1.5 var(--ui);min-height:1em}
+
+  /* ---------- viseur ---------- */
+  #stage{position:relative;flex:1;min-height:0;overflow:hidden;background:#000;touch-action:none}
+  video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+  svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+
+  .handle{position:absolute;width:66px;height:66px;margin:-33px 0 0 -33px;border:0;background:none;
+    cursor:grab;touch-action:none;padding:0}
+  .handle:active{cursor:grabbing}
+  .handle::before{content:"";position:absolute;inset:23px;border:1.5px solid var(--span);border-radius:50%}
+  .handle::after{content:attr(data-tag);position:absolute;left:50%;top:-2px;transform:translateX(-50%);
+    font:600 9px/1 var(--mono);letter-spacing:.16em;color:var(--span)}
+  .handle:focus-visible::before{inset:18px;border-width:2px;box-shadow:0 0 0 2px rgba(255,201,74,.35)}
+
+  #topbar{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;
+    padding:14px 16px;background:linear-gradient(#0D1210CC,transparent)}
+
+  /* ---------- lecture ---------- */
+  #panel{background:var(--ink);border-top:1px solid var(--line);padding:14px 16px calc(14px + env(safe-area-inset-bottom))}
+  #hero{display:flex;align-items:baseline;gap:10px}
+  #main{font:500 60px/.9 var(--mono);letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+  #main.stale{color:var(--dim)}
+  #unit{font:500 18px/1 var(--mono);color:var(--dim)}
+  #tol{margin-left:auto;font:400 12px/1 var(--mono);color:var(--dim)}
+  #grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;margin-top:14px;background:var(--line)}
+  #grid div{background:var(--ink);padding:9px 8px 10px}
+  #grid span{display:block;font:500 17px/1 var(--mono);font-variant-numeric:tabular-nums;margin-top:6px}
+  .neg{color:var(--span)}
+
+  /* ---------- réglages ---------- */
+  #gear{position:absolute;right:12px;bottom:12px;width:44px;height:44px;border:1px solid var(--line);
+    border-radius:2px;background:rgba(13,18,16,.6);color:var(--graticule);font:500 11px/1 var(--mono);cursor:pointer}
+  #sheet{position:absolute;inset:0;z-index:20;background:rgba(9,13,11,.94);padding:20px 18px;overflow:auto;display:none}
+  #sheet.open{display:block}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .row label{font-size:13px;color:var(--dim);flex:1}
+  input[type=number]{width:96px;background:transparent;border:1px solid var(--line);color:var(--paper);
+    font:500 14px/1 var(--mono);padding:9px;border-radius:2px;text-align:right}
+  input[type=range]{width:150px;accent-color:var(--graticule)}
+  select{background:var(--ink);border:1px solid var(--line);color:var(--paper);font:500 13px var(--mono);padding:9px;border-radius:2px}
+  .note{font-size:12px;line-height:1.6;color:var(--dim);margin:14px 0 0}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div id="intro">
+  <p class="eyebrow">Visée optique + inclinomètre</p>
+  <h1>Mesurez une distance en <em>encadrant</em> le drapeau.</h1>
+  <ol>
+    <li>Placez le repère <b>HAUT</b> sur le sommet du drapeau et <b>PIED</b> sur sa base.</li>
+    <li>La hauteur en pixels donne la distance de visée ; la gravité donne l'angle.</li>
+    <li>Calibrez une fois sur une cible de distance connue pour la précision.</li>
+  </ol>
+  <button class="btn" id="go">Activer la caméra</button>
+  <p id="err"></p>
+</div>
+
+<div id="stage">
+  <video id="v" playsinline muted autoplay></video>
+  <svg id="ov" aria-hidden="true">
+    <g id="hz" stroke="var(--graticule)" fill="none" stroke-width="1"></g>
+    <line id="spanline" stroke="var(--span)" stroke-width="1.5" stroke-dasharray="7 5"/>
+  </svg>
+  <button class="handle" id="hTop" data-tag="HAUT" aria-label="Repère sommet du drapeau"></button>
+  <button class="handle" id="hBot" data-tag="PIED" aria-label="Repère base du drapeau"></button>
+
+  <div id="topbar">
+    <span class="eyebrow" id="stat">—</span>
+    <span class="eyebrow" id="pxread">0 px</span>
+  </div>
+  <button id="gear" aria-label="Réglages">RÉG</button>
+
+  <div id="sheet" role="dialog" aria-label="Réglages">
+    <p class="eyebrow">Cible</p>
+    <div class="row"><label for="tgt">Hauteur de référence</label>
+      <select id="tgt">
+        <option value="2.13">Drapeau 2,13 m</option>
+        <option value="1.75">Personne 1,75 m</option>
+        <option value="0">Autre…</option>
+      </select></div>
+    <div class="row"><label for="H">Hauteur réelle (m)</label><input id="H" type="number" step="0.01" value="2.13"></div>
+
+    <p class="eyebrow" style="margin-top:22px">Optique</p>
+    <div class="row"><label for="fov">Champ horizontal supposé (°)</label><input id="fov" type="number" step="1" value="66"></div>
+    <div class="row"><label for="zoom">Zoom optique/numérique</label><input id="zoom" type="range" min="1" max="1" step="0.1" value="1" disabled></div>
+    <div class="row"><label for="fpx">Focale effective (px)</label><input id="fpx" type="number" step="1" value="0"></div>
+
+    <p class="eyebrow" style="margin-top:22px">Calibration</p>
+    <div class="row"><label for="dcal">Distance connue de la cible (m)</label><input id="dcal" type="number" step="0.1" value="20"></div>
+    <div class="row"><label>Encadrez la cible puis validez</label>
+      <button class="btn" id="docal" style="padding:11px 14px">Calibrer</button></div>
+
+    <p class="note">La focale se recalcule à chaque changement de zoom. Notez la valeur en pixels après calibration : elle peut être ressaisie directement au prochain lancement.</p>
+    <div class="row" style="border:0;justify-content:flex-end"><button class="btn" id="close">Fermer</button></div>
+  </div>
+</div>
+
+<div id="panel">
+  <p class="eyebrow">Distance jouée</p>
+  <div id="hero">
+    <span id="main" class="stale">—</span><span id="unit">m</span><span id="tol">±—</span>
+  </div>
+  <div id="grid">
+    <div><span class="eyebrow">Horizontale</span><span id="oHz">—</span></div>
+    <div><span class="eyebrow">Visée</span><span id="oLine">—</span></div>
+    <div><span class="eyebrow">Dénivelé</span><span id="oDh">—</span></div>
+    <div><span class="eyebrow">Angle</span><span id="oAng">—</span></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const stage=$('stage'), video=$('v'), ov=$('ov'), hzG=$('hz'), spanLine=$('spanline');
+  const hTop=$('hTop'), hBot=$('hBot');
+  const DEG=180/Math.PI;
+
+  let pTop={x:.5,y:.32}, pBot={x:.5,y:.62};      // positions relatives au stage
+  let grav={x:0,y:9.81,z:0}, haveMotion=false;
+  let track=null, zoomBase=1, zoomNow=1, fCal=0, zoomAtCal=1;
+
+  /* ---------- démarrage ---------- */
+  $('go').addEventListener('click', async () => {
+    $('err').textContent='';
+    try{
+      if (typeof DeviceMotionEvent!=='undefined' && DeviceMotionEvent.requestPermission){
+        try{ haveMotion = await DeviceMotionEvent.requestPermission()==='granted'; }catch(e){ haveMotion=false; }
+      } else haveMotion=true;
+      if (haveMotion) window.addEventListener('devicemotion', onMotion);
+
+      const s = await navigator.mediaDevices.getUserMedia({
+        video:{ facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} }, audio:false });
+      video.srcObject=s;
+      await video.play();
+      track = s.getVideoTracks()[0];
+      setupZoom();
+      $('intro').remove();
+      placeHandles();
+      requestAnimationFrame(loop);
+    }catch(e){
+      $('err').textContent = "Caméra indisponible : "+e.message+" — l'accès exige HTTPS et une autorisation.";
+    }
+  });
+
+  function setupZoom(){
+    const cap = track.getCapabilities ? track.getCapabilities() : {};
+    if (!cap.zoom) return;
+    const z=$('zoom');
+    z.min=cap.zoom.min; z.max=cap.zoom.max; z.step=cap.zoom.step||.1;
+    zoomBase = track.getSettings().zoom || cap.zoom.min;
+    z.value = zoomBase; zoomNow = zoomBase; z.disabled=false;
+    z.addEventListener('input', ()=>{ zoomNow=+z.value; track.applyConstraints({advanced:[{zoom:zoomNow}]}); });
+  }
+
+  /* ---------- capteurs ---------- */
+  function onMotion(e){
+    const g = e.accelerationIncludingGravity; if(!g||g.x===null) return;
+    const a=.12;                                   // lissage exponentiel
+    grav.x += a*(g.x-grav.x); grav.y += a*(g.y-grav.y); grav.z += a*(g.z-grav.z);
+  }
+  const norm = () => Math.hypot(grav.x,grav.y,grav.z)||9.81;
+  const elevAxis = () => Math.asin(Math.max(-1,Math.min(1,-grav.z/norm())));  // axe caméra / horizontale
+  const roll     = () => Math.atan2(grav.x, grav.y);
+
+  /* ---------- optique ---------- */
+  function focalPx(){
+    const manual = +$('fpx').value;
+    if (fCal>0) return fCal * (zoomNow/zoomAtCal);
+    if (manual>0) return manual * (zoomNow/zoomBase);
+    const vw=video.videoWidth, vh=video.videoHeight;
+    if(!vw) return 0;
+    const sc = Math.max(stage.clientWidth/vw, stage.clientHeight/vh);
+    const hfov = (+$('fov').value||66)/DEG;
+    return ((vw*sc)/2)/Math.tan(hfov/2) * (zoomNow/zoomBase);
+  }
+
+  /* ---------- poignées ---------- */
+  function placeHandles(){
+    const w=stage.clientWidth, h=stage.clientHeight;
+    hTop.style.left=pTop.x*w+'px'; hTop.style.top=pTop.y*h+'px';
+    hBot.style.left=pBot.x*w+'px'; hBot.style.top=pBot.y*h+'px';
+  }
+  function drag(el, p){
+    el.addEventListener('pointerdown', ev=>{ el.setPointerCapture(ev.pointerId); el.dataset.on=1; });
+    el.addEventListener('pointermove', ev=>{
+      if(!el.dataset.on) return;
+      const r=stage.getBoundingClientRect();
+      p.x=Math.min(1,Math.max(0,(ev.clientX-r.left)/r.width));
+      p.y=Math.min(1,Math.max(0,(ev.clientY-r.top)/r.height));
+      placeHandles();
+    });
+    const up=ev=>{ delete el.dataset.on; };
+    el.addEventListener('pointerup',up); el.addEventListener('pointercancel',up);
+    el.addEventListener('keydown', ev=>{
+      const s = ev.shiftKey?.02:.003, k=ev.key;
+      if(k==='ArrowUp') p.y-=s; else if(k==='ArrowDown') p.y+=s;
+      else if(k==='ArrowLeft') p.x-=s; else if(k==='ArrowRight') p.x+=s; else return;
+      ev.preventDefault(); placeHandles();
+    });
+  }
+  drag(hTop,pTop); drag(hBot,pBot);
+  addEventListener('resize', placeHandles);
+
+  /* ---------- cible ---------- */
+  $('tgt').addEventListener('change', e=>{ if(+e.target.value>0) $('H').value=e.target.value; });
+  $('gear').addEventListener('click', ()=> $('sheet').classList.add('open'));
+  $('close').addEventListener('click', ()=> $('sheet').classList.remove('open'));
+  $('docal').addEventListener('click', ()=>{
+    const d=+$('dcal').value, H=+$('H').value, px=spanPx();
+    if(d>0 && H>0 && px>4){
+      fCal = px*d/H; zoomAtCal = zoomNow;
+      $('fpx').value = Math.round(fCal);
+      $('sheet').classList.remove('open');
+    }
+  });
+
+  /* ---------- géométrie ---------- */
+  function spanPx(){
+    const w=stage.clientWidth, h=stage.clientHeight, r=roll();
+    const dx=(pTop.x-pBot.x)*w, dy=(pTop.y-pBot.y)*h;
+    const ux=-Math.sin(r), uy=-Math.cos(r);        // « haut » du monde, en repère écran
+    return Math.abs(dx*ux+dy*uy);
+  }
+
+  const fmt = (v,n=1) => (Math.abs(v)<1e4 ? v.toFixed(n) : '—');
+
+  function loop(){
+    const w=stage.clientWidth, h=stage.clientHeight, cx=w/2, cy=h/2;
+    ov.setAttribute('viewBox',`0 0 ${w} ${h}`);
+    const f=focalPx(), el=elevAxis(), r=roll();
+
+    // horizon artificiel + échelle de tangage
+    let d='';
+    for(let a=-15;a<=15;a+=5){
+      const y = cy + f*Math.tan(el - a/DEG);
+      if(!isFinite(y)||y<-h||y>2*h) continue;
+      const half = a===0 ? w*.46 : w*.12;
+      d += `M${cx-half} ${y}H${cx+half}`;
+      if(a!==0) d += `M${cx-half} ${y}v${a>0?6:-6}M${cx+half} ${y}v${a>0?6:-6}`;
+    }
+    d += `M${cx-9} ${cy}h18M${cx} ${cy-9}v18`;      // croisée centrale
+    hzG.setAttribute('transform',`rotate(${r*DEG} ${cx} ${cy})`);
+    hzG.innerHTML = `<path d="${d}"/>`;
+
+    spanLine.setAttribute('x1',pTop.x*w); spanLine.setAttribute('y1',pTop.y*h);
+    spanLine.setAttribute('x2',pBot.x*w); spanLine.setAttribute('y2',pBot.y*h);
+
+    // résolution
+    const px=spanPx(), H=+$('H').value||2.13;
+    $('pxread').textContent = px.toFixed(0)+' px  ·  f '+(f?f.toFixed(0):'—');
+    $('stat').textContent = haveMotion ? (fCal?'calibré':'estimé') : 'sans inclinomètre';
+
+    if(f>0 && px>4 && H>0){
+      const dLine = H*f/px;
+      const thetaBase = el + Math.atan((cy - pBot.y*h)/f);   // angle vers le pied du drapeau
+      const dHz = dLine*Math.cos(thetaBase);
+      const dh  = dLine*Math.sin(thetaBase);
+      const played = dHz + dh;                               // règle usuelle de correction de pente
+      const tol = dLine*(2/px);                              // ±2 px de pointé
+
+      $('main').classList.remove('stale');
+      $('main').textContent = fmt(played,0);
+      $('tol').textContent  = '±'+fmt(tol,1)+' m';
+      $('oHz').textContent  = fmt(dHz,1);
+      $('oLine').textContent= fmt(dLine,1);
+      $('oDh').textContent  = (dh>=0?'+':'')+fmt(dh,1);
+      $('oDh').className    = dh<0?'neg':'';
+      $('oAng').textContent = fmt(thetaBase*DEG,1)+'°';
+    } else {
+      $('main').classList.add('stale'); $('main').textContent='—';
+    }
+    requestAnimationFrame(loop);
+  }
+})();
+</script>
+</body>
+</html>
